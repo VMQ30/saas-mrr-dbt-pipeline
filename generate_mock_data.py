@@ -32,10 +32,46 @@ def get_last_id(file_path, field_name):
         return 1
 
 
+def inject_null(value, probability=0.05):
+    return "" if random.random() < probability else value
+
+
+def mess_up_string(text, probability=0.1):
+    if random.random() > probability:
+        return text
+
+    mutations = [
+        lambda t: t.upper(),
+        lambda t: t.capitalize(),
+        lambda t: f" {t} ",
+    ]
+    return random.choice(mutations)(text)
+
+
+def mess_up_date(dt_obj, probability=0.05):
+    if random.random() > probability:
+        return dt_obj.strftime("%Y-%m-%d %H:%M:%S")
+
+    formats = [
+        lambda d: d.strftime("%Y/%m/%d"),
+        lambda d: d.isoformat(),
+        lambda d: str(int(d.timestamp())),
+        lambda d: "NULL",
+    ]
+    return random.choice(formats)(dt_obj)
+
+
 def mock_data(num_customers: int = 500):
     fake = Faker()
     start_date = datetime(2024, 1, 1)
     end_date = datetime.now()
+
+    customer_file_exists = (
+        os.path.isfile(CUSTOMER_FILE) and os.path.getsize(CUSTOMER_FILE) > 0
+    )
+    subscription_file_exists = (
+        os.path.isfile(SUBSCRIPTION_FILE) and os.path.getsize(SUBSCRIPTION_FILE) > 0
+    )
 
     customer_index = get_last_id(CUSTOMER_FILE, "customer_id")
     event_id = get_last_id(SUBSCRIPTION_FILE, "event_id")
@@ -47,28 +83,33 @@ def mock_data(num_customers: int = 500):
         customer_id = f"{i:05d}"
         created_at_dt = fake.date_time_between(start_date=start_date, end_date=end_date)
 
-        customers.append(
-            {
-                "customer_id": customer_id,
-                "customer_name": fake.name(),
-                "country": fake.country_code(),
-                "created_at": created_at_dt.strftime("%Y-%m-%d %H:%M:%S"),
-            }
-        )
+        cust_record = {
+            "customer_id": customer_id,
+            "customer_name": inject_null(fake.name(), probability=0.05),
+            "country": inject_null(fake.country_code(), probability=0.08),
+            "created_at": mess_up_date(created_at_dt),  # FIX: Passed datetime object
+        }
+        customers.append(cust_record)
+
+        if random.random() < 0.03:
+            customers.append(cust_record.copy())
 
         current_plan = random.choice(list(PLANS.keys()))
         current_date = created_at_dt
 
-        events.append(
-            {
-                "event_id": event_id,
-                "customer_id": customer_id,
-                "event_type": "signup",
-                "plan_name": current_plan,
-                "amount": PLANS[current_plan],
-                "event_timestamp": current_date.strftime("%Y-%m-%d %H:%M:%S"),
-            }
-        )
+        signup_event = {
+            "event_id": event_id,
+            "customer_id": customer_id,
+            "event_type": "signup",
+            "plan_name": mess_up_string(current_plan, probability=0.15),
+            "amount": PLANS[current_plan],
+            "event_timestamp": mess_up_date(current_date),
+        }
+        events.append(signup_event)
+
+        if random.random() < 0.03:
+            events.append(signup_event.copy())
+
         event_id += 1
 
         while current_date < end_date:
@@ -79,47 +120,48 @@ def mock_data(num_customers: int = 500):
             action = random.choices(ACTION_TYPES, weights=ACTION_WEIGHTS)[0]
 
             if action == "churn":
-                events.append(
-                    {
-                        "event_id": event_id,
-                        "customer_id": customer_id,
-                        "event_type": "churn",
-                        "plan_name": "none",
-                        "amount": 0.00,
-                        "event_timestamp": current_date.strftime("%Y-%m-%d %H:%M:%S"),
-                    }
-                )
+                churn_event = {
+                    "event_id": event_id,
+                    "customer_id": customer_id,
+                    "event_type": "churn",
+                    "plan_name": "none",
+                    "amount": 0.00,
+                    "event_timestamp": mess_up_date(current_date),
+                }
+                events.append(churn_event)
                 event_id += 1
                 break
 
             elif action == "upgrade/downgrade":
                 new_plan = random.choice([p for p in PLANS if p != current_plan])
-                events.append(
-                    {
-                        "event_id": event_id,
-                        "customer_id": customer_id,
-                        "event_type": "plan_change",
-                        "plan_name": new_plan,
-                        "amount": PLANS[new_plan],
-                        "event_timestamp": current_date.strftime("%Y-%m-%d %H:%M:%S"),
-                    }
-                )
+                change_event = {
+                    "event_id": event_id,
+                    "customer_id": customer_id,
+                    "event_type": "plan_change",
+                    "plan_name": mess_up_string(new_plan, probability=0.15),
+                    "amount": PLANS[new_plan],
+                    "event_timestamp": mess_up_date(current_date),
+                }
+                events.append(change_event)
                 current_plan = new_plan
                 event_id += 1
 
-    with open(CUSTOMER_FILE, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=customers[0].keys())
-        if not os.path.isfile(CUSTOMER_FILE):
-            writer.writeheader()
-        writer.writerows(customers)
+    if customers:
+        with open(CUSTOMER_FILE, "a", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=customers[0].keys())
+            if not customer_file_exists:
+                writer.writeheader()
+            writer.writerows(customers)
 
-    with open(SUBSCRIPTION_FILE, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=events[0].keys())
-        if not os.path.isfile(SUBSCRIPTION_FILE):
-            writer.writeheader()
-        writer.writerows(events)
+    if events:
+        with open(SUBSCRIPTION_FILE, "a", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=events[0].keys())
+            if not subscription_file_exists:
+                writer.writeheader()
+            writer.writerows(events)
 
     print("CSV files generated successfully!")
 
 
-mock_data(num_customers=500)
+if __name__ == "__main__":
+    mock_data(num_customers=500)
