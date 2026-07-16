@@ -8,25 +8,25 @@ subscription_events AS (
     FROM {{ref('stg_subscription_events')}}
 ),
 
-monthly_deduped_events as (
-    select
+monthly_deduped_events AS (
+    SELECT
         customer_id,
-        date_trunc(cast(event_timestamp as date), month) as date_month,
+        DATE_TRUNC(CAST(event_timestamp AS DATE), MONTH) AS date_month,
         event_type,
         plan_name,
         mrr_amount,
         event_timestamp,
-        row_number() over (
-            partition by customer_id, date_trunc(cast(event_timestamp as date), month)
-            order by event_timestamp desc, event_id desc
-        ) as rn
-    from subscription_events
+        ROW_NUMBER() OVER (
+            PARTITION BY customer_id, DATE_TRUNC(CAST(event_timestamp AS DATE), MONTH)
+            ORDER BY event_timestamp DESC, event_id DESC
+        ) AS rn
+    FROM subscription_events
 ),
 
-last_event_per_month as (
-    select *
-    from monthly_deduped_events
-    where rn = 1
+last_event_per_month AS (
+    SELECT *
+    FROM monthly_deduped_events
+    WHERE rn = 1
 ),
 
 joined_events AS (
@@ -40,22 +40,22 @@ joined_events AS (
     FROM customer_months AS cm
     LEFT JOIN last_event_per_month AS le
         ON cm.customer_id = le.customer_id
-        AND cm.date_month = date_trunc(CAST(le.event_timestamp AS date) , month)
+        AND cm.date_month = DATE_TRUNC(CAST(le.event_timestamp AS DATE), MONTH)
 ),
 
 carried_forward AS (
     SELECT
         customer_id,
         date_month,
-        last_value(plan_name ignore nulls) OVER (
+        LAST_VALUE(plan_name IGNORE NULLS) OVER (
             PARTITION BY customer_id
             ORDER BY date_month
-            ROWS BETWEEN unbounded preceding AND current row
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         ) AS current_plan,
-        last_value(mrr_amount ignore nulls) OVER (
+        LAST_VALUE(mrr_amount IGNORE NULLS) OVER (
             PARTITION BY customer_id
             ORDER BY date_month
-            ROWS BETWEEN unbounded preceding AND current row
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         ) AS current_mrr
     FROM joined_events
 )
