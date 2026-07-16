@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: raw_saas
+    database: saas-mrr-analytics
+    schema: raw_saas
+    tables:
+      - name: raw_customers
+      - name: raw_subscription_events
